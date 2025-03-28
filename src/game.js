@@ -71,8 +71,8 @@ const INITIAL_POSITIONS = {
 
 // 物理参数
 const PHYSICS = {
-    jumpForce: -0.15,
-    moveForce: 0.008,    // 降低移动力度
+    jumpForce: -0.25,    
+    moveForce: 0.008,    
     friction: 0.001,
     jumpCooldown: 5
 };
@@ -108,7 +108,7 @@ const ctx = canvas.getContext('2d');
 
 // 初始化 Matter.js
 const engine = Engine.create();
-engine.gravity.y = 0.4;  // 降低重力加速度
+engine.gravity.y = 1.2;  // 增加重力加速度
 const world = engine.world;
 
 // 设置碰撞检测
@@ -127,8 +127,8 @@ function createPlayer(x, y, color) {
     return Bodies.rectangle(x, y, 30, 30, {
         restitution: 0.1,
         friction: PHYSICS.friction,
-        density: 0.003,
-        frictionAir: 0.003,
+        density: 0.008,      // 增加玩家密度
+        frictionAir: 0.002,  // 降低空气阻力
         frictionStatic: 0.005,
         collisionFilter: {
             category: COLLISION_CATEGORIES.PLAYER,
@@ -1000,7 +1000,7 @@ function updatePlayerMovement() {
     if (jumpKeyJustPressed && gameState.local.jumpCooldown <= 0) {
         console.log('玩家尝试跳跃');
         if (onGround || (!onGround && gameState.local.jumpCount < 2)) {
-            const jumpVelocity = gameState.local.jumpCount === 0 ? -6 : -5;
+            const jumpVelocity = gameState.local.jumpCount === 0 ? -9 : -7;  // 将跳跃速度从-12/-10降低到-9/-7
             Body.setVelocity(gameState.local.body, { 
                 x: velocity.x, 
                 y: jumpVelocity
