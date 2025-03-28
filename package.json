@@ -1,0 +1,21 @@
+{
+  "name": "webrtc-test",
+  "version": "1.0.0",
+  "description": "WebRTC 1v1 方块移动演示",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "vite": "^6.2.3"
+  },
+  "dependencies": {
+    "matter-js": "^0.20.0",
+    "peerjs": "^1.5.4"
+  }
+}
