@@ -392,33 +392,9 @@ function resetPositions() {
 }
 
 // 显示连接提示
-function showConnectionNotice(text, duration = 3000) {
-    const notice = document.createElement('div');
-    notice.style.cssText = `
-        position: absolute;
-        top: 80px;
-        left: 50%;
-        transform: translateX(-50%);
-        background-color: rgba(0, 0, 0, 0.8);
-        color: white;
-        padding: 15px 30px;
-        border-radius: 5px;
-        font-size: 18px;
-        z-index: 1000;
-        transition: opacity 0.3s;
-        text-align: center;
-        width: fit-content;
-        margin: 0 auto;
-    `;
-    notice.textContent = text;
-    document.body.appendChild(notice);
-
-    setTimeout(() => {
-        notice.style.opacity = '0';
-        setTimeout(() => {
-            document.body.removeChild(notice);
-        }, 300);
-    }, duration);
+function showConnectionNotice(text) {
+    // 直接更新status元素内容，不再创建新的div
+    document.getElementById('status').textContent = text;
 }
 
 // PeerJS 连接事件
@@ -450,7 +426,6 @@ peer.on('connection', (conn) => {
     connection = conn;
     setupConnection();
     document.getElementById('status').textContent = '对方已连接！';
-    showConnectionNotice('玩家2已加入游戏！');
     
     // 设置连接状态
     gameState.isConnected = true;
@@ -573,7 +548,6 @@ function setupConnection() {
     connection.on('open', () => {
         console.log('连接已打开');
         document.getElementById('status').textContent = '连接成功！';
-        showConnectionNotice('成功连接到对方！');
         gameState.remote.isConnected = true;
         gameState.isConnected = true;
         
@@ -843,7 +817,7 @@ function setupConnection() {
     });
 
     connection.on('close', () => {
-        showConnectionNotice('对方已断开连接！', 5000);
+        showConnectionNotice('对方已断开连接！');
         if (gameState.remote.body) {
             World.remove(world, gameState.remote.body);
             gameState.remote.body = null;
@@ -1931,9 +1905,9 @@ function resetGame() {
 window.shareLink = () => {
     const shareUrl = `${window.location.origin}${window.location.pathname}?id=${peer.id}`;
     navigator.clipboard.writeText(shareUrl).then(() => {
-        showConnectionNotice('已复制分享链接！');
+        document.getElementById('status').textContent = '已复制分享链接！';
     }).catch(err => {
         console.error('复制失败:', err);
-        showConnectionNotice('复制链接失败，请手动复制');
+        document.getElementById('status').textContent = '复制链接失败，请手动复制';
     });
 }; 
