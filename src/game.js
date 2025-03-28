@@ -54,7 +54,10 @@ const gameState = {
     winner: null,     // 添加获胜者
     rematchRequested: false,  // 添加重新挑战请求状态
     lastPlatformRegen: 0,    // 添加上次平台重生成时间
-    platformRegenInterval: 5000  // 平台重生成间隔（5秒）
+    platformRegenInterval: 5000,  // 平台重生成间隔（5秒）
+    lastReceivedPlatformSeed: null,  // 添加上次接收的平台种子记录
+    lastReceivedPlatformTimestamp: null, // 添加上次接收的平台时间戳
+    lastPlatformSeed: null,  // 添加上次平台生成种子记录
 };
 
 // 平台配置
@@ -229,131 +232,98 @@ function createPlatform(x, y, width) {
     return platform;
 }
 
-// 修改生成平台函数
-function generatePlatforms() {
-    // 只有主机生成平台
-    if (!gameState.local.isHost) return;
-
-    console.log('主机：开始生成平台');
-
+// 修改生成平台函数，改为本地随机生成和完全复制两种模式
+function generatePlatforms(platformData = null) {
+    console.log('生成平台，模式:', platformData ? '复制模式' : '主机生成模式');
+    
     // 清除现有平台
     gameState.platforms.forEach(platform => {
         World.remove(world, platform);
     });
     gameState.platforms = [];
-
-    // 记录已生成的平台位置
-    const platformPositions = [];
-    let attempts = 0;
-    const maxAttempts = 100;
-    let minDistance = PLATFORM_CONFIG.minDistance;
-
-    // 将画布分成三个区域，确保每个区域至少有一个平台
-    const regions = [
-        { minX: 40, maxX: 160 },    // 左区域
-        { minX: 160, maxX: 240 },   // 中区域
-        { minX: 240, maxX: 360 }    // 右区域
-    ];
-
-    // 为每个区域生成一个平台
-    for (let regionIndex = 0; regionIndex < regions.length; regionIndex++) {
-        const region = regions[regionIndex];
-        let platformGenerated = false;
-        let regionAttempts = 0;
-        const maxRegionAttempts = 30;
-
-        while (!platformGenerated && regionAttempts < maxRegionAttempts) {
-            // 生成平台宽度，使用指数分布使短平台更常见
-            const randomValue = Math.random();
-            const width = PLATFORM_CONFIG.minWidth + 
-                (PLATFORM_CONFIG.maxWidth - PLATFORM_CONFIG.minWidth) * 
-                (1 - Math.pow(randomValue, 2)); // 使用平方函数使短平台更常见
-
-            // 确保平台在区域内
-            const minX = Math.max(region.minX, width / 2 + 20);
-            const maxX = Math.min(region.maxX, canvas.width - width / 2 - 20);
-            const x = Math.random() * (maxX - minX) + minX;
-
-            // 生成平台高度，确保在有效范围内
-            const y = Math.random() * (PLATFORM_CONFIG.maxY - PLATFORM_CONFIG.minY) + 
-                PLATFORM_CONFIG.minY;
-
-            // 检查与现有平台的距离
-            let tooClose = false;
-            for (const pos of platformPositions) {
-                const dx = Math.abs(x - pos.x);
-                const dy = Math.abs(y - pos.y);
-                
-                // 放宽垂直距离限制
-                const maxVerticalDistance = 120; // 增加最大垂直距离
-                // 放宽水平距离限制
-                const minHorizontalDistance = (width + pos.width) / 2 + 60;
-
-                if (dx < minHorizontalDistance && dy < maxVerticalDistance) {
-                    tooClose = true;
-                    break;
-                }
-            }
-
-            if (!tooClose) {
-                platformPositions.push({ x, y, width });
-                const platform = createPlatform(x, y, width);
-                gameState.platforms.push(platform);
-                World.add(world, platform);
-                platformGenerated = true;
-            }
-
-            regionAttempts++;
-        }
-
-        // 如果当前区域无法生成平台，尝试减小最小距离
-        if (!platformGenerated && minDistance > 60) {
-            minDistance -= 5;
-            console.log('减小最小距离到:', minDistance);
-        }
-    }
-
-    // 如果没有生成足够的平台，使用默认布局
-    if (gameState.platforms.length < PLATFORM_CONFIG.count) {
-        console.log('无法生成足够的平台，使用默认布局');
-        // 清除现有平台
-        gameState.platforms.forEach(platform => {
-            World.remove(world, platform);
-        });
-        gameState.platforms = [];
-
-        // 使用默认布局，但使用随机宽度
-        const defaultPositions = [
-            { x: 100, y: 200 },
-            { x: 300, y: 250 },
-            { x: 200, y: 300 }
-        ];
-
-        defaultPositions.forEach(pos => {
-            const width = Math.random() * (PLATFORM_CONFIG.maxWidth - PLATFORM_CONFIG.minWidth) + 
-                PLATFORM_CONFIG.minWidth;
-            const platform = createPlatform(pos.x, pos.y, width);
+    
+    // 如果提供了平台数据，就直接按照数据创建平台（客户端模式）
+    if (platformData) {
+        console.log('客户端：从主机数据创建平台，数量:', platformData.length);
+        platformData.forEach(data => {
+            const platform = createPlatform(data.x, data.y, data.width);
             gameState.platforms.push(platform);
             World.add(world, platform);
         });
+        console.log('客户端：平台创建完成，数量:', gameState.platforms.length);
+        return;
     }
-
-    console.log('主机：平台生成完成，数量:', gameState.platforms.length);
-
-    // 主机发送平台数据
-    if (connection && connection.open) {
-        console.log('主机：发送平台数据到客户端');
-        const platformsData = gameState.platforms.map(platform => ({
-            x: platform.position.x,
-            y: platform.position.y,
-            width: platform.bounds.max.x - platform.bounds.min.x
-        }));
-
-        connection.send({
-            type: 'platformGenerated',
-            platforms: platformsData
+    
+    // 没有提供平台数据，由主机生成新平台
+    if (!gameState.local.isHost) {
+        console.log('错误：非主机不应该生成平台');
+        return;
+    }
+    
+    console.log('主机：开始生成新平台');
+    
+    // 固定种子的随机生成
+    const seed = Date.now();
+    gameState.lastPlatformSeed = seed;
+    
+    console.log('主机：使用种子', seed);
+    let rngState = seed;
+    function seededRandom() {
+        rngState = (rngState * 9301 + 49297) % 233280;
+        return rngState / 233280;
+    }
+    
+    // 为简化和确保一致性，使用固定位置但随机宽度
+    const positions = [
+        { x: 100, y: 200 }, // 左侧平台
+        { x: 300, y: 250 }, // 右侧平台
+        { x: 200, y: 300 }  // 中间平台
+    ];
+    
+    // 生成平台并记录平台数据
+    const newPlatforms = [];
+    positions.forEach(pos => {
+        const randomValue = seededRandom();
+        const width = PLATFORM_CONFIG.minWidth + 
+            (PLATFORM_CONFIG.maxWidth - PLATFORM_CONFIG.minWidth) * randomValue;
+        
+        const platform = createPlatform(pos.x, pos.y, width);
+        gameState.platforms.push(platform);
+        World.add(world, platform);
+        
+        // 记录平台数据
+        newPlatforms.push({
+            x: pos.x,
+            y: pos.y,
+            width: width
         });
+    });
+    
+    console.log('主机：平台生成完成，数量:', gameState.platforms.length);
+    
+    // 发送平台数据到客户端
+    if (connection && connection.open) {
+        console.log('主机：发送平台数据');
+        const platformMessage = {
+            type: 'setExactPlatforms',
+            seed: seed,
+            timestamp: Date.now(),
+            platforms: newPlatforms
+        };
+        
+        // 发送平台数据
+        connection.send(platformMessage);
+        
+        // 延迟后再次发送确保可靠性
+        setTimeout(() => {
+            if (connection && connection.open) {
+                console.log('主机：再次发送平台数据（可靠性保障）');
+                connection.send(platformMessage);
+            }
+        }, 300);
     }
+    
+    return newPlatforms;
 }
 
 // 修改检查是否在地面上的函数
@@ -417,8 +387,12 @@ peer.on('open', (id) => {
         World.add(world, gameState.local.body);
     }
     
-    // 生成初始平台
+    // 主机初始生成平台，使游戏可以单人游玩
+    console.log('主机：生成初始平台');
     generatePlatforms();
+    
+    // 初始化lastPlatformRegen，避免连接后立即重新生成
+    gameState.lastPlatformRegen = Date.now();
 });
 
 peer.on('connection', (conn) => {
@@ -434,9 +408,6 @@ peer.on('connection', (conn) => {
     // 主机发送初始游戏状态
     if (gameState.local.isHost && connection && connection.open) {
         console.log('主机：准备发送初始化数据');
-        
-        // 重新生成平台
-        generatePlatforms();
         
         // 确保主机的玩家已创建
         if (!gameState.local.body) {
@@ -460,30 +431,15 @@ peer.on('connection', (conn) => {
             World.add(world, gameState.remote.body);
         }
         
-        // 发送初始状态
+        // 改为先发送准备信号，确保客户端已准备好接收数据
         setTimeout(() => {
-            console.log('主机：发送初始状态');
-            const platformsData = gameState.platforms.map(platform => ({
-                x: platform.position.x,
-                y: platform.position.y,
-                width: platform.bounds.max.x - platform.bounds.min.x
-            }));
+            console.log('主机：发送准备信号');
+            connection.send({
+                type: 'prepareForInitialState'
+            });
             
-            const initialState = {
-                type: 'initialState',
-                localColor: PLAYER_COLORS.player2,  // 客户端的颜色
-                remoteColor: PLAYER_COLORS.player1, // 主机的颜色
-                platforms: platformsData,
-                localPosition: INITIAL_POSITIONS.remote,  // 客户端的初始位置
-                remotePosition: {  // 主机的当前位置
-                    x: gameState.local.body.position.x,
-                    y: gameState.local.body.position.y
-                }
-            };
-            
-            console.log('主机：发送的初始状态:', initialState);
-            connection.send(initialState);
-        }, 1000);
+            // 等待客户端回应准备好后再生成平台并发送数据
+        }, 300);
     }
 });
 
@@ -536,6 +492,10 @@ window.connectToPeer = () => {
     gameState.remote.score = 0;
     gameState.gameStarted = false;
     gameState.lastCollectibleSpawn = 0;
+    gameState.lastReceivedPlatformSeed = null; // 重置平台种子记录
+    
+    // 客户端也生成默认平台，防止在连接过程中没有平台可用
+    generateDefaultPlatforms();
 };
 
 // 设置连接
@@ -554,7 +514,7 @@ function setupConnection() {
         // 非主机初始化
         if (!gameState.local.isHost) {
             console.log('客户端：发送初始状态请求');
-            // 清除现有状态
+            // 清除现有状态，但保留平台直到收到主机的平台数据
             if (gameState.local.body) {
                 World.remove(world, gameState.local.body);
                 gameState.local.body = null;
@@ -563,10 +523,6 @@ function setupConnection() {
                 World.remove(world, gameState.remote.body);
                 gameState.remote.body = null;
             }
-            gameState.platforms.forEach(platform => {
-                World.remove(world, platform);
-            });
-            gameState.platforms = [];
             
             // 请求初始状态
             if (connection.open) {
@@ -586,27 +542,69 @@ function setupConnection() {
         if (data.type === 'requestInitialState') {
             console.log('主机：收到初始状态请求');
             if (gameState.local.isHost && connection && connection.open) {
-                console.log('主机：准备发送初始状态');
-                const platformsData = gameState.platforms.map(platform => ({
-                    x: platform.position.x,
-                    y: platform.position.y,
-                    width: platform.bounds.max.x - platform.bounds.min.x
-                }));
+                console.log('主机：回复准备信号');
+                connection.send({
+                    type: 'prepareForInitialState'
+                });
+            }
+            return;
+        }
+        
+        if (data.type === 'prepareForInitialState') {
+            console.log('收到准备信号');
+            
+            if (gameState.local.isHost) {
+                // 主机收到客户端准备完成的回应，开始生成平台并发送数据
+                console.log('主机：收到客户端准备完成回应，开始生成平台');
                 
-                const initialState = {
-                    type: 'initialState',
-                    localColor: PLAYER_COLORS.player2,  // 客户端的颜色
-                    remoteColor: PLAYER_COLORS.player1, // 主机的颜色
-                    platforms: platformsData,
-                    localPosition: INITIAL_POSITIONS.remote,  // 客户端的初始位置
-                    remotePosition: {  // 主机的当前位置
-                        x: gameState.local.body.position.x,
-                        y: gameState.local.body.position.y
-                    }
-                };
+                // 清除现有平台
+                gameState.platforms.forEach(platform => {
+                    World.remove(world, platform);
+                });
+                gameState.platforms = [];
                 
-                console.log('主机：发送初始状态:', initialState);
-                connection.send(initialState);
+                // 生成平台并获取平台数据
+                const platformData = generatePlatforms();
+                
+                // 然后发送初始状态（不包含平台信息，平台信息已通过setExactPlatforms发送）
+                setTimeout(() => {
+                    console.log('主机：发送初始状态');
+                    
+                    const initialState = {
+                        type: 'initialState',
+                        localColor: PLAYER_COLORS.player2,
+                        remoteColor: PLAYER_COLORS.player1,
+                        localPosition: INITIAL_POSITIONS.remote,
+                        remotePosition: {
+                            x: gameState.local.body.position.x,
+                            y: gameState.local.body.position.y
+                        }
+                    };
+                    
+                    console.log('主机：发送的初始状态:', initialState);
+                    connection.send(initialState);
+                }, 500);
+            } else {
+                // 客户端收到准备信号，清除现有状态，准备接收新数据
+                console.log('客户端：收到准备信号，准备接收数据');
+                
+                // 清除玩家
+                if (gameState.local.body) {
+                    World.remove(world, gameState.local.body);
+                    gameState.local.body = null;
+                }
+                if (gameState.remote.body) {
+                    World.remove(world, gameState.remote.body);
+                    gameState.remote.body = null;
+                }
+                
+                // 回应主机，表示已准备好
+                if (connection && connection.open) {
+                    console.log('客户端：回应准备完成');
+                    connection.send({
+                        type: 'prepareForInitialState'
+                    });
+                }
             }
             return;
         }
@@ -659,6 +657,12 @@ function setupConnection() {
                     });
                     gameState.platforms = [];
                     
+                    // 设置平台种子与主机一致
+                    if (data.platformSeed) {
+                        gameState.lastReceivedPlatformSeed = data.platformSeed;
+                        console.log('客户端：设置平台种子:', data.platformSeed);
+                    }
+                    
                     // 创建平台
                     data.platforms.forEach(platformData => {
                         console.log('客户端：创建平台:', platformData);
@@ -694,10 +698,14 @@ function setupConnection() {
                     );
                     World.add(world, gameState.remote.body);
 
+                    // 重置平台重生成时间，与主机保持同步
+                    gameState.lastPlatformRegen = Date.now();
+
                     // 通知主机初始化完成
                     console.log('客户端：通知主机初始化完成');
                     connection.send({
-                        type: 'initComplete'
+                        type: 'initComplete',
+                        platformsCount: gameState.platforms.length  // 发送平台数量作为确认
                     });
                 } catch (error) {
                     console.error('客户端：应用初始状态时出错:', error);
@@ -720,7 +728,15 @@ function setupConnection() {
         }
 
         if (data.type === 'platformGenerated') {
-            console.log('收到平台生成数据:', data.platforms.length);
+            console.log('收到平台生成数据:', data.platforms.length, '种子:', data.seed);
+            
+            // 确保不是重复收到的相同数据，防止重复处理
+            if (gameState.lastReceivedPlatformSeed === data.seed) {
+                console.log('忽略重复的平台数据');
+                return;
+            }
+            
+            gameState.lastReceivedPlatformSeed = data.seed;
             
             // 清除现有平台
             gameState.platforms.forEach(platform => {
@@ -740,7 +756,20 @@ function setupConnection() {
                 World.add(world, platform);
             });
             
+            // 确认收到平台数据
+            if (connection && connection.open) {
+                connection.send({
+                    type: 'platformsReceived',
+                    seed: data.seed
+                });
+            }
+            
             console.log('平台重建完成，数量:', gameState.platforms.length);
+            return;
+        }
+        
+        if (data.type === 'platformsReceived') {
+            console.log('确认客户端已接收平台数据，种子:', data.seed);
             return;
         }
 
@@ -812,6 +841,82 @@ function setupConnection() {
 
         if (data.type === 'rematchAccepted') {
             resetGame();
+            return;
+        }
+
+        if (data.type === 'syncPlatformRegenTime') {
+            console.log('同步平台重生成时间:', new Date(data.timestamp));
+            gameState.lastPlatformRegen = data.timestamp;
+            return;
+        }
+
+        // 添加新的平台同步消息处理
+        if (data.type === 'setExactPlatforms') {
+            console.log('收到精确平台数据:', data);
+            
+            // 如果是重复的消息，忽略
+            if (gameState.lastReceivedPlatformSeed === data.seed && 
+                gameState.lastReceivedPlatformTimestamp === data.timestamp) {
+                console.log('忽略重复的平台数据');
+                return;
+            }
+            
+            // 记录接收的种子和时间戳
+            gameState.lastReceivedPlatformSeed = data.seed;
+            gameState.lastReceivedPlatformTimestamp = data.timestamp;
+            
+            // 使用客户端模式生成平台
+            generatePlatforms(data.platforms);
+            
+            // 重置平台重生成时间
+            gameState.lastPlatformRegen = Date.now();
+            
+            // 发送确认消息
+            if (connection && connection.open) {
+                connection.send({
+                    type: 'platformsReady',
+                    seed: data.seed,
+                    timestamp: data.timestamp,
+                    count: gameState.platforms.length
+                });
+            }
+            
+            return;
+        }
+        
+        if (data.type === 'platformsReady') {
+            console.log('客户端已准备好平台，数量:', data.count);
+            
+            // 验证平台数量
+            if (data.count !== gameState.platforms.length) {
+                console.warn('平台数量不匹配!', '主机:', gameState.platforms.length, '客户端:', data.count);
+                
+                // 如果数量不匹配，重新发送平台数据
+                if (gameState.local.isHost && connection && connection.open) {
+                    console.log('重新发送平台数据');
+                    const platformData = gameState.platforms.map(platform => ({
+                        x: platform.position.x,
+                        y: platform.position.y,
+                        width: platform.bounds.max.x - platform.bounds.min.x
+                    }));
+                    
+                    connection.send({
+                        type: 'setExactPlatforms',
+                        seed: gameState.lastPlatformSeed,
+                        timestamp: Date.now(),
+                        platforms: platformData
+                    });
+                }
+            }
+            
+            return;
+        }
+
+        // 添加初始化完成处理
+        if (data.type === 'initComplete') {
+            console.log('主机：收到客户端初始化完成消息，平台数:', data.platformsCount);
+            // 客户端应该已经通过setExactPlatforms获得了平台数据，这里只需记录就行了
+            console.log('客户端平台数量:', data.platformsCount, '主机平台数量:', gameState.platforms.length);
             return;
         }
     });
@@ -1482,7 +1587,8 @@ function gameLoop() {
         if (now - gameState.lastPlatformRegen >= gameState.platformRegenInterval) {
             // 只有主机重新生成平台
             if (gameState.local.isHost) {
-                generatePlatforms();
+                console.log('时间到，重新生成平台');
+                generatePlatforms(); // 主机模式生成平台，会自动发送数据给客户端
                 gameState.lastPlatformRegen = now;
             }
         }
@@ -1492,7 +1598,11 @@ function gameLoop() {
 }
 
 // 在游戏初始化时生成平台
-generatePlatforms();
+// generatePlatforms(); // 注释掉这行代码
+
+// 在游戏初始化时生成默认平台，确保即使未连接也能玩
+console.log('游戏初始化：生成默认平台');
+generateDefaultPlatforms();
 
 // 添加操作说明文字
 const controlsText = document.createElement('div');
@@ -1911,3 +2021,29 @@ window.shareLink = () => {
         document.getElementById('status').textContent = '复制链接失败，请手动复制';
     });
 }; 
+
+// 添加生成默认平台的函数
+function generateDefaultPlatforms() {
+    console.log('生成默认平台');
+    
+    // 清除现有平台
+    gameState.platforms.forEach(platform => {
+        World.remove(world, platform);
+    });
+    gameState.platforms = [];
+    
+    // 使用默认布局和固定宽度
+    const defaultPositions = [
+        { x: 100, y: 200, width: 120 },
+        { x: 300, y: 250, width: 120 },
+        { x: 200, y: 300, width: 120 }
+    ];
+    
+    defaultPositions.forEach(pos => {
+        const platform = createPlatform(pos.x, pos.y, pos.width);
+        gameState.platforms.push(platform);
+        World.add(world, platform);
+    });
+    
+    console.log('默认平台生成完成，数量:', gameState.platforms.length);
+}
