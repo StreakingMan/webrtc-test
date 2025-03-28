@@ -1307,8 +1307,9 @@ function updateEffects() {
 function renderPlayerIndicator(body, color, score, isLocal) {
     if (!body) return;
     
-    const yOffset = 35;  // 增加偏移量，让三角形离方块更远
     const size = 15;
+    const groundY = 380; // 地面y坐标
+    const indicatorY = groundY; // 三角形位置在地面位置
     
     // 绘制得分
     ctx.fillStyle = '#000';  // 文字描边颜色
@@ -1325,9 +1326,9 @@ function renderPlayerIndicator(body, color, score, isLocal) {
     if (isLocal) {
         // 绘制三角形（箭头向上）
         ctx.beginPath();
-        ctx.moveTo(body.position.x, body.position.y + yOffset - size);  // 三角形尖端
-        ctx.lineTo(body.position.x - size/2, body.position.y + yOffset);  // 左边点
-        ctx.lineTo(body.position.x + size/2, body.position.y + yOffset);  // 右边点
+        ctx.moveTo(body.position.x, indicatorY - size);  // 三角形尖端
+        ctx.lineTo(body.position.x - size/2, indicatorY);  // 左边点
+        ctx.lineTo(body.position.x + size/2, indicatorY);  // 右边点
         ctx.closePath();
         
         // 添加描边使三角形更明显
@@ -1343,7 +1344,7 @@ function renderPlayerIndicator(body, color, score, isLocal) {
         ctx.lineWidth = 3;
         ctx.font = 'bold 14px Arial';
         ctx.textAlign = 'center';
-        const textY = body.position.y + yOffset + size + 8;  // 将文字放在三角形下方
+        const textY = indicatorY + size;  // 将文字放在三角形底部
         ctx.strokeText('我', body.position.x, textY);
         ctx.fillText('我', body.position.x, textY);
     }
@@ -1527,33 +1528,16 @@ function gameLoop() {
 // 在游戏初始化时生成平台
 generatePlatforms();
 
-// 添加操作说明面板
-const controlsPanel = document.createElement('div');
-controlsPanel.style.cssText = `
-    position: fixed;
-    top: 60px;
-    right: 10px;
-    padding: 15px;
-    background-color: rgba(44, 62, 80, 0.8);
-    color: white;
-    border-radius: 8px;
-    font-size: 14px;
-    line-height: 1.5;
-    z-index: 1000;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+// 添加操作说明文字
+const controlsText = document.createElement('div');
+controlsText.style.cssText = `
+    text-align: center;
+    color: #666;
+    font-size: 12px;
+    margin-top: 5px;
 `;
-
-controlsPanel.innerHTML = `
-    <h3 style="margin: 0 0 10px 0; color: #4ECDC4;">操作说明</h3>
-    <div style="margin-bottom: 5px;">↑ 或 空格：跳跃</div>
-    <div style="margin-bottom: 5px;">← ：向左移动</div>
-    <div style="margin-bottom: 5px;">→ ：向右移动</div>
-    <div style="margin-top: 10px; font-size: 12px; color: #BDC3C7;">
-        提示：可以在平台上跳跃
-    </div>
-`;
-
-document.body.appendChild(controlsPanel);
+controlsText.textContent = '操作说明：↑ 或 空格跳跃，← → 左右移动';
+document.getElementById('gameCanvas').parentNode.appendChild(controlsText);
 
 // 添加平台重生成按钮
 const regenerateButton = document.createElement('button');
