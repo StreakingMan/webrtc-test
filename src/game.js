@@ -52,15 +52,15 @@ const gameState = {
 
 // 平台配置
 const PLATFORM_CONFIG = {
-    minCount: 2,        // 最小平台数量
-    maxCount: 4,        // 最大平台数量
-    minWidth: 80,       // 最小宽度
-    maxWidth: 120,      // 最大宽度
+    count: 3,           // 固定生成3块平台
+    minWidth: 60,       // 最小宽度
+    maxWidth: 180,      // 最大宽度
     height: 10,         // 平台高度
-    minY: 120,          // 最低高度
+    minY: 150,          // 最低高度
     maxY: 300,          // 最高高度
-    color: '#4CAF50',   // 平台颜色
-    minDistance: 80     // 平台之间的最小距离
+    color: '#95A5A6',   // 优雅的灰色
+    minDistance: 80,    // 平台之间的最小距离
+    playerHeight: 30    // 玩家高度
 };
 
 // 初始位置
@@ -79,9 +79,9 @@ const PHYSICS = {
 
 // 修改玩家颜色配置
 const PLAYER_COLORS = {
-    player1: '#ff0000',
-    player2: '#0000ff',
-    indicator: '#FFD700'  // 玩家标识的颜色
+    player1: '#FF6B6B',  // 温暖的珊瑚红
+    player2: '#4ECDC4',  // 清新的青绿色
+    indicator: '#FFE66D'  // 明亮的黄色
 };
 
 // 修改掉落物配置
@@ -90,7 +90,7 @@ const COLLECTIBLE_CONFIG = {
     size: 20,
     spawnInterval: 2000,  // 每2秒生成一个
     fallSpeed: 2,
-    colors: [PLAYER_COLORS.player1, PLAYER_COLORS.player2],  // 与玩家颜色对应
+    colors: ['#FF6B6B', '#4ECDC4'],  // 与玩家颜色对应
     maxCount: 5  // 场上最大掉落物数量
 };
 
@@ -100,6 +100,21 @@ const COLLECT_EFFECT_CONFIG = {
     particleLifeSpan: 30,  // 粒子生命周期
     particleSpeed: 3,   // 粒子速度
     flashDuration: 10   // 闪光持续时间
+};
+
+// 添加负面特效配置
+const NEGATIVE_EFFECT_CONFIG = {
+    flashColor: '#FF4444',  // 红色
+    flashDuration: 15,      // 闪光持续时间
+    shakeIntensity: 2,      // 降低震动强度
+    shakeDuration: 8,       // 减少震动持续时间
+    particleCount: 20,      // 粒子数量
+    particleSpeed: 4,       // 粒子速度
+    particleLifeSpan: 25,   // 粒子生命周期
+    fadeDuration: 72,       // 1.2秒 = 72帧 (60fps)
+    initialAlpha: 0.9,      // 初始透明度
+    radius: 40,             // 效果范围
+    pulseCount: 4           // 透明度变化次数
 };
 
 // 初始化画布
@@ -147,7 +162,7 @@ const ground = Bodies.rectangle(200, 380, 400, 40, {
     frictionStatic: 0.005, // 降低地面静摩擦力
     collisionFilter: {
         category: COLLISION_CATEGORIES.BOUNDARY,
-        mask: COLLISION_CATEGORIES.PLAYER
+        mask: COLLISION_CATEGORIES.PLAYER | COLLISION_CATEGORIES.COLLECTIBLE  // 添加与掉落物的碰撞
     }
 });
 const leftWall = Bodies.rectangle(0, 200, 40, 400, { 
@@ -155,7 +170,7 @@ const leftWall = Bodies.rectangle(0, 200, 40, 400, {
     friction: 0.001,
     collisionFilter: {
         category: COLLISION_CATEGORIES.BOUNDARY,
-        mask: COLLISION_CATEGORIES.PLAYER
+        mask: COLLISION_CATEGORIES.PLAYER | COLLISION_CATEGORIES.COLLECTIBLE  // 添加与掉落物的碰撞
     }
 });
 const rightWall = Bodies.rectangle(400, 200, 40, 400, { 
@@ -163,7 +178,7 @@ const rightWall = Bodies.rectangle(400, 200, 40, 400, {
     friction: 0.001,
     collisionFilter: {
         category: COLLISION_CATEGORIES.BOUNDARY,
-        mask: COLLISION_CATEGORIES.PLAYER
+        mask: COLLISION_CATEGORIES.PLAYER | COLLISION_CATEGORIES.COLLECTIBLE  // 添加与掉落物的碰撞
     }
 });
 const ceiling = Bodies.rectangle(200, 0, 400, 40, { 
@@ -171,7 +186,7 @@ const ceiling = Bodies.rectangle(200, 0, 400, 40, {
     friction: 0.001,
     collisionFilter: {
         category: COLLISION_CATEGORIES.BOUNDARY,
-        mask: COLLISION_CATEGORIES.PLAYER
+        mask: COLLISION_CATEGORIES.PLAYER | COLLISION_CATEGORIES.COLLECTIBLE  // 添加与掉落物的碰撞
     }
 });
 
@@ -220,53 +235,111 @@ function generatePlatforms() {
     });
     gameState.platforms = [];
 
-    // 随机决定平台数量
-    const platformCount = Math.floor(Math.random() * 
-        (PLATFORM_CONFIG.maxCount - PLATFORM_CONFIG.minCount + 1)) + 
-        PLATFORM_CONFIG.minCount;
-
     // 记录已生成的平台位置
     const platformPositions = [];
-
-    // 生成新平台
     let attempts = 0;
     const maxAttempts = 100;
+    let minDistance = PLATFORM_CONFIG.minDistance;
 
-    while (platformPositions.length < platformCount && attempts < maxAttempts) {
-        const width = Math.random() * (PLATFORM_CONFIG.maxWidth - PLATFORM_CONFIG.minWidth) + PLATFORM_CONFIG.minWidth;
-        const x = Math.random() * (canvas.width - width - 80) + 40;
-        const y = Math.random() * (PLATFORM_CONFIG.maxY - PLATFORM_CONFIG.minY) + PLATFORM_CONFIG.minY;
+    // 将画布分成三个区域，确保每个区域至少有一个平台
+    const regions = [
+        { minX: 40, maxX: 160 },    // 左区域
+        { minX: 160, maxX: 240 },   // 中区域
+        { minX: 240, maxX: 360 }    // 右区域
+    ];
 
-        let tooClose = false;
-        for (const pos of platformPositions) {
-            const dx = Math.abs(x - pos.x);
-            const dy = Math.abs(y - pos.y);
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance < PLATFORM_CONFIG.minDistance) {
-                tooClose = true;
-                break;
+    // 为每个区域生成一个平台
+    for (let regionIndex = 0; regionIndex < regions.length; regionIndex++) {
+        const region = regions[regionIndex];
+        let platformGenerated = false;
+        let regionAttempts = 0;
+        const maxRegionAttempts = 30;
+
+        while (!platformGenerated && regionAttempts < maxRegionAttempts) {
+            // 生成平台宽度，使用指数分布使短平台更常见
+            const randomValue = Math.random();
+            const width = PLATFORM_CONFIG.minWidth + 
+                (PLATFORM_CONFIG.maxWidth - PLATFORM_CONFIG.minWidth) * 
+                (1 - Math.pow(randomValue, 2)); // 使用平方函数使短平台更常见
+
+            // 确保平台在区域内
+            const minX = Math.max(region.minX, width / 2 + 20);
+            const maxX = Math.min(region.maxX, canvas.width - width / 2 - 20);
+            const x = Math.random() * (maxX - minX) + minX;
+
+            // 生成平台高度，确保在有效范围内
+            const y = Math.random() * (PLATFORM_CONFIG.maxY - PLATFORM_CONFIG.minY) + 
+                PLATFORM_CONFIG.minY;
+
+            // 检查与现有平台的距离
+            let tooClose = false;
+            for (const pos of platformPositions) {
+                const dx = Math.abs(x - pos.x);
+                const dy = Math.abs(y - pos.y);
+                
+                // 放宽垂直距离限制
+                const maxVerticalDistance = 120; // 增加最大垂直距离
+                // 放宽水平距离限制
+                const minHorizontalDistance = (width + pos.width) / 2 + 60;
+
+                if (dx < minHorizontalDistance && dy < maxVerticalDistance) {
+                    tooClose = true;
+                    break;
+                }
             }
+
+            if (!tooClose) {
+                platformPositions.push({ x, y, width });
+                const platform = createPlatform(x, y, width);
+                gameState.platforms.push(platform);
+                World.add(world, platform);
+                platformGenerated = true;
+            }
+
+            regionAttempts++;
         }
 
-        if (!tooClose) {
-            platformPositions.push({ x, y, width });
-            const platform = createPlatform(x, y, width);
-            gameState.platforms.push(platform);
-            World.add(world, platform);
+        // 如果当前区域无法生成平台，尝试减小最小距离
+        if (!platformGenerated && minDistance > 60) {
+            minDistance -= 5;
+            console.log('减小最小距离到:', minDistance);
         }
-
-        attempts++;
     }
 
-    console.log('主机：平台生成完成，数量:', platformPositions.length);
+    // 如果没有生成足够的平台，使用默认布局
+    if (gameState.platforms.length < PLATFORM_CONFIG.count) {
+        console.log('无法生成足够的平台，使用默认布局');
+        // 清除现有平台
+        gameState.platforms.forEach(platform => {
+            World.remove(world, platform);
+        });
+        gameState.platforms = [];
+
+        // 使用默认布局，但使用随机宽度
+        const defaultPositions = [
+            { x: 100, y: 200 },
+            { x: 300, y: 250 },
+            { x: 200, y: 300 }
+        ];
+
+        defaultPositions.forEach(pos => {
+            const width = Math.random() * (PLATFORM_CONFIG.maxWidth - PLATFORM_CONFIG.minWidth) + 
+                PLATFORM_CONFIG.minWidth;
+            const platform = createPlatform(pos.x, pos.y, width);
+            gameState.platforms.push(platform);
+            World.add(world, platform);
+        });
+    }
+
+    console.log('主机：平台生成完成，数量:', gameState.platforms.length);
 
     // 主机发送平台数据
     if (connection && connection.open) {
         console.log('主机：发送平台数据到客户端');
-        const platformsData = platformPositions.map(pos => ({
-            x: pos.x,
-            y: pos.y,
-            width: pos.width
+        const platformsData = gameState.platforms.map(platform => ({
+            x: platform.position.x,
+            y: platform.position.y,
+            width: platform.bounds.max.x - platform.bounds.min.x
         }));
 
         connection.send({
@@ -773,10 +846,16 @@ function setupConnection() {
 // 修改碰撞检测事件
 Events.on(engine, 'collisionStart', (event) => {
     event.pairs.forEach((pair) => {
-        console.log('碰撞检测 - bodyA category:', pair.bodyA.collisionFilter.category);
-        console.log('碰撞检测 - bodyB category:', pair.bodyB.collisionFilter.category);
-        console.log('碰撞检测 - COLLECTIBLE category:', COLLISION_CATEGORIES.COLLECTIBLE);
-        console.log('碰撞检测 - 本地玩家body:', gameState.local.body);
+        console.log('碰撞检测 - bodyA:', {
+            label: pair.bodyA.label,
+            category: pair.bodyA.collisionFilter.category,
+            mask: pair.bodyA.collisionFilter.mask
+        });
+        console.log('碰撞检测 - bodyB:', {
+            label: pair.bodyB.label,
+            category: pair.bodyB.collisionFilter.category,
+            mask: pair.bodyB.collisionFilter.mask
+        });
 
         // 检查是否涉及掉落物
         let collectibleBody = null;
@@ -819,6 +898,14 @@ Events.on(engine, 'collisionStart', (event) => {
                     collectible.color
                 );
 
+                // 只在扣分时创建负面特效
+                if (collectible.color !== gameState.local.color) {
+                    createNegativeEffect(
+                        collectible.body.position.x,
+                        collectible.body.position.y
+                    );
+                }
+
                 // 移除掉落物
                 World.remove(world, collectible.body);
                 gameState.collectibles = gameState.collectibles.filter(c => c.body !== collectible.body);
@@ -857,19 +944,23 @@ function createCollectibleFromData(data) {
         const size = COLLECTIBLE_CONFIG.size;
         const commonProperties = {
             isStatic: false,
-            isSensor: false,  // 改为 false，使其能与平台产生物理碰撞
+            isSensor: false,
             render: { fillStyle: data.color },
             label: 'collectible',
-            friction: 0.001,
-            frictionAir: 0.001,
-            restitution: 0.3,
+            friction: 0.05,       // 保持较小的摩擦力
+            frictionAir: 0.0005,  // 保持较小的空气阻力
+            restitution: 0.8,     // 增加弹性系数
+            density: 0.0005,      // 保持较小的密度
+            frictionStatic: 0.05, // 保持较小的静摩擦力
             collisionFilter: {
                 category: COLLISION_CATEGORIES.COLLECTIBLE,
-                mask: COLLISION_CATEGORIES.PLATFORM | COLLISION_CATEGORIES.PLAYER  // 允许与平台和玩家碰撞
+                mask: COLLISION_CATEGORIES.PLATFORM | COLLISION_CATEGORIES.PLAYER | COLLISION_CATEGORIES.BOUNDARY | COLLISION_CATEGORIES.COLLECTIBLE  // 添加与其他掉落物的碰撞
             }
         };
 
         console.log('掉落物碰撞设置:', commonProperties.collisionFilter);
+        console.log('掉落物类别:', COLLISION_CATEGORIES.COLLECTIBLE);
+        console.log('边界类别:', COLLISION_CATEGORIES.BOUNDARY);
 
         switch (data.type) {
             case 'circle':
@@ -885,7 +976,9 @@ function createCollectibleFromData(data) {
 
         if (body) {
             console.log('掉落物创建成功:', body);
-            Body.setVelocity(body, { x: 0, y: COLLECTIBLE_CONFIG.fallSpeed });
+            console.log('掉落物碰撞过滤器:', body.collisionFilter);
+            // 设置更小的初始下落速度
+            Body.setVelocity(body, { x: 0, y: COLLECTIBLE_CONFIG.fallSpeed * 0.2 });
             return { body, color: data.color, timestamp: data.timestamp, type: data.type };
         }
     } catch (error) {
@@ -1040,7 +1133,7 @@ function updatePlayerMovement() {
                     maxRadius: 40,        // 增加闪光范围
                     life: 20,             // 增加闪光持续时间
                     maxLife: 20,
-                    color: '#FFD700'      // 金色闪光
+                    color: '#FFE66D'      // 明亮的黄色闪光
                 });
             }
         }
@@ -1167,64 +1260,11 @@ function updateEffects() {
     }
 }
 
-// 添加特效渲染函数
-function renderEffects() {
-    // 渲染轨迹
-    [gameState.local.effects.trail, gameState.remote.effects.trail].forEach(trail => {
-        trail.forEach(point => {
-            ctx.beginPath();
-            const alpha = Math.floor((point.life / point.maxLife) * 255);
-            const size = point.size * (point.life / point.maxLife);
-            ctx.fillStyle = `${point.color}${alpha.toString(16).padStart(2, '0')}`;
-            ctx.arc(point.x, point.y, size, 0, Math.PI * 2);
-            ctx.fill();
-        });
-    });
-
-    // 渲染跳跃粒子
-    [gameState.local.effects.jumpParticles, gameState.remote.effects.jumpParticles].forEach((particles, idx) => {
-        const baseColor = idx === 0 ? gameState.local.color : gameState.remote.color;
-        particles.forEach(p => {
-            ctx.beginPath();
-            // 二段跳的粒子使用不同的颜色
-            const color = p.isSecondJump ? '#FFD700' : baseColor;
-            ctx.fillStyle = `${color}${Math.floor((p.life / p.maxLife) * 255).toString(16).padStart(2, '0')}`;
-            ctx.arc(p.x, p.y, p.size * (p.life / p.maxLife), 0, Math.PI * 2);
-            ctx.fill();
-        });
-    });
-
-    // 渲染收集特效粒子
-    gameState.effects.collectParticles.forEach(particle => {
-        const alpha = particle.life / particle.maxLife;
-        ctx.beginPath();
-        ctx.fillStyle = `${particle.color}${Math.floor(alpha * 255).toString(16).padStart(2, '0')}`;
-        ctx.arc(particle.x, particle.y, particle.size * alpha, 0, Math.PI * 2);
-        ctx.fill();
-    });
-
-    // 渲染闪光效果
-    gameState.effects.flashes.forEach(flash => {
-        const alpha = flash.life / flash.maxLife;
-        const gradient = ctx.createRadialGradient(
-            flash.x, flash.y, 0,
-            flash.x, flash.y, flash.radius
-        );
-        gradient.addColorStop(0, `${flash.color}${Math.floor(alpha * 255).toString(16).padStart(2, '0')}`);
-        gradient.addColorStop(1, `${flash.color}00`);
-        
-        ctx.beginPath();
-        ctx.fillStyle = gradient;
-        ctx.arc(flash.x, flash.y, flash.radius, 0, Math.PI * 2);
-        ctx.fill();
-    });
-}
-
 // 修改渲染玩家标识和得分的函数
 function renderPlayerIndicator(body, color, score, isLocal) {
     if (!body) return;
     
-    const yOffset = -25;
+    const yOffset = 35;  // 增加偏移量，让三角形离方块更远
     const size = 15;
     
     // 绘制得分
@@ -1233,18 +1273,18 @@ function renderPlayerIndicator(body, color, score, isLocal) {
     ctx.lineWidth = 3;
     ctx.font = 'bold 16px Arial';
     ctx.textAlign = 'center';
-    const scoreY = body.position.y + yOffset - size - 25;  // 将得分显示在标识上方
+    const scoreY = body.position.y - 25;  // 将得分显示在方块上方
     const scoreText = score.toString();
     ctx.strokeText(scoreText, body.position.x, scoreY);  // 先绘制描边
     ctx.fillText(scoreText, body.position.x, scoreY);    // 再绘制文字
     
     // 只为本地玩家显示"我"的标识
     if (isLocal) {
-        // 绘制三角形（箭头向下）
+        // 绘制三角形（箭头向上）
         ctx.beginPath();
-        ctx.moveTo(body.position.x, body.position.y + yOffset);  // 三角形尖端
-        ctx.lineTo(body.position.x - size/2, body.position.y + yOffset - size);  // 左边点
-        ctx.lineTo(body.position.x + size/2, body.position.y + yOffset - size);  // 右边点
+        ctx.moveTo(body.position.x, body.position.y + yOffset - size);  // 三角形尖端
+        ctx.lineTo(body.position.x - size/2, body.position.y + yOffset);  // 左边点
+        ctx.lineTo(body.position.x + size/2, body.position.y + yOffset);  // 右边点
         ctx.closePath();
         
         // 添加描边使三角形更明显
@@ -1260,7 +1300,7 @@ function renderPlayerIndicator(body, color, score, isLocal) {
         ctx.lineWidth = 3;
         ctx.font = 'bold 14px Arial';
         ctx.textAlign = 'center';
-        const textY = body.position.y + yOffset - size - 8;
+        const textY = body.position.y + yOffset + size + 8;  // 将文字放在三角形下方
         ctx.strokeText('我', body.position.x, textY);
         ctx.fillText('我', body.position.x, textY);
     }
@@ -1347,27 +1387,60 @@ function gameLoop() {
     // 渲染所有物体
     const bodies = Matter.Composite.allBodies(world);
     bodies.forEach(body => {
-        if (body === gameState.local.body) {
-            ctx.fillStyle = gameState.local.color;
-        } else if (body === gameState.remote.body) {
-            ctx.fillStyle = gameState.remote.color;
+        if (body === gameState.local.body || body === gameState.remote.body) {
+            // 为玩家角色添加圆角
+            const radius = 8; // 圆角半径
+            const x = body.position.x;
+            const y = body.position.y;
+            const width = 30;
+            const height = 30;
+            
+            ctx.beginPath();
+            ctx.moveTo(x - width/2 + radius, y - height/2);
+            ctx.lineTo(x + width/2 - radius, y - height/2);
+            ctx.quadraticCurveTo(x + width/2, y - height/2, x + width/2, y - height/2 + radius);
+            ctx.lineTo(x + width/2, y + height/2 - radius);
+            ctx.quadraticCurveTo(x + width/2, y + height/2, x + width/2 - radius, y + height/2);
+            ctx.lineTo(x - width/2 + radius, y + height/2);
+            ctx.quadraticCurveTo(x - width/2, y + height/2, x - width/2, y + height/2 - radius);
+            ctx.lineTo(x - width/2, y - height/2 + radius);
+            ctx.quadraticCurveTo(x - width/2, y - height/2, x - width/2 + radius, y - height/2);
+            ctx.closePath();
+            
+            ctx.fillStyle = body === gameState.local.body ? gameState.local.color : gameState.remote.color;
+            ctx.fill();
         } else if (gameState.platforms.includes(body)) {
             ctx.fillStyle = PLATFORM_CONFIG.color;
+            const vertices = body.vertices;
+            ctx.beginPath();
+            ctx.moveTo(vertices[0].x, vertices[0].y);
+            for (let j = 1; j < vertices.length; j++) {
+                ctx.lineTo(vertices[j].x, vertices[j].y);
+            }
+            ctx.lineTo(vertices[0].x, vertices[0].y);
+            ctx.fill();
         } else if (gameState.collectibles.find(c => c.body === body)) {
             const collectible = gameState.collectibles.find(c => c.body === body);
             ctx.fillStyle = collectible.color;
+            const vertices = body.vertices;
+            ctx.beginPath();
+            ctx.moveTo(vertices[0].x, vertices[0].y);
+            for (let j = 1; j < vertices.length; j++) {
+                ctx.lineTo(vertices[j].x, vertices[j].y);
+            }
+            ctx.lineTo(vertices[0].x, vertices[0].y);
+            ctx.fill();
         } else {
-            ctx.fillStyle = '#333';
+            ctx.fillStyle = '#2C3E50';  // 深蓝灰色背景
+            const vertices = body.vertices;
+            ctx.beginPath();
+            ctx.moveTo(vertices[0].x, vertices[0].y);
+            for (let j = 1; j < vertices.length; j++) {
+                ctx.lineTo(vertices[j].x, vertices[j].y);
+            }
+            ctx.lineTo(vertices[0].x, vertices[0].y);
+            ctx.fill();
         }
-
-        const vertices = body.vertices;
-        ctx.beginPath();
-        ctx.moveTo(vertices[0].x, vertices[0].y);
-        for (let j = 1; j < vertices.length; j++) {
-            ctx.lineTo(vertices[j].x, vertices[j].y);
-        }
-        ctx.lineTo(vertices[0].x, vertices[0].y);
-        ctx.fill();
     });
 
     // 渲染玩家标识和得分
@@ -1413,20 +1486,21 @@ controlsPanel.style.cssText = `
     top: 60px;
     right: 10px;
     padding: 15px;
-    background-color: rgba(0, 0, 0, 0.7);
+    background-color: rgba(44, 62, 80, 0.8);
     color: white;
     border-radius: 8px;
     font-size: 14px;
     line-height: 1.5;
     z-index: 1000;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
 `;
 
 controlsPanel.innerHTML = `
-    <h3 style="margin: 0 0 10px 0; color: #4CAF50;">操作说明</h3>
+    <h3 style="margin: 0 0 10px 0; color: #4ECDC4;">操作说明</h3>
     <div style="margin-bottom: 5px;">↑ 或 空格：跳跃</div>
     <div style="margin-bottom: 5px;">← ：向左移动</div>
     <div style="margin-bottom: 5px;">→ ：向右移动</div>
-    <div style="margin-top: 10px; font-size: 12px; color: #aaa;">
+    <div style="margin-top: 10px; font-size: 12px; color: #BDC3C7;">
         提示：可以在平台上跳跃
     </div>
 `;
@@ -1441,18 +1515,26 @@ regenerateButton.style.cssText = `
     top: 10px;
     right: 10px;
     padding: 8px 16px;
-    background-color: #4CAF50;
+    background-color: #4ECDC4;
     color: white;
     border: none;
     border-radius: 4px;
     cursor: pointer;
     font-size: 14px;
+    transition: background-color 0.3s;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 `;
 regenerateButton.onclick = () => {
     // 只有主机可以重新生成平台
     if (gameState.local.isHost) {
         generatePlatforms();
     }
+};
+regenerateButton.onmouseover = () => {
+    regenerateButton.style.backgroundColor = '#45B7AF';
+};
+regenerateButton.onmouseout = () => {
+    regenerateButton.style.backgroundColor = '#4ECDC4';
 };
 document.body.appendChild(regenerateButton);
 
@@ -1550,5 +1632,114 @@ function createCollectEffect(x, y, color) {
         life: COLLECT_EFFECT_CONFIG.flashDuration,
         maxLife: COLLECT_EFFECT_CONFIG.flashDuration,
         color: color
+    });
+}
+
+// 添加负面特效函数
+function createNegativeEffect(x, y) {
+    // 创建震动效果
+    if (gameState.local.body) {
+        const originalX = gameState.local.body.position.x;
+        const originalY = gameState.local.body.position.y;
+        let shakeCount = 0;
+        const shakeInterval = setInterval(() => {
+            if (shakeCount >= NEGATIVE_EFFECT_CONFIG.shakeDuration) {
+                clearInterval(shakeInterval);
+                Body.setPosition(gameState.local.body, { x: originalX, y: originalY });
+                return;
+            }
+
+            const offsetX = (Math.random() - 0.5) * NEGATIVE_EFFECT_CONFIG.shakeIntensity;
+            const offsetY = (Math.random() - 0.5) * NEGATIVE_EFFECT_CONFIG.shakeIntensity;
+            Body.setPosition(gameState.local.body, {
+                x: originalX + offsetX,
+                y: originalY + offsetY
+            });
+
+            shakeCount++;
+        }, 50);
+    }
+
+    // 创建红色粒子效果
+    for (let i = 0; i < NEGATIVE_EFFECT_CONFIG.particleCount; i++) {
+        const angle = (Math.PI * 2 / NEGATIVE_EFFECT_CONFIG.particleCount) * i;
+        const speed = NEGATIVE_EFFECT_CONFIG.particleSpeed * (0.8 + Math.random() * 0.4);
+        
+        gameState.effects.collectParticles.push({
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            size: 3 + Math.random() * 2,
+            color: NEGATIVE_EFFECT_CONFIG.flashColor,
+            life: NEGATIVE_EFFECT_CONFIG.particleLifeSpan,
+            maxLife: NEGATIVE_EFFECT_CONFIG.particleLifeSpan
+        });
+    }
+}
+
+// 修改渲染闪光效果的代码
+function renderEffects() {
+    // 渲染轨迹
+    [gameState.local.effects.trail, gameState.remote.effects.trail].forEach(trail => {
+        trail.forEach(point => {
+            ctx.beginPath();
+            const alpha = Math.floor((point.life / point.maxLife) * 255);
+            const size = point.size * (point.life / point.maxLife);
+            ctx.fillStyle = `${point.color}${alpha.toString(16).padStart(2, '0')}`;
+            ctx.arc(point.x, point.y, size, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    });
+
+    // 渲染跳跃粒子
+    [gameState.local.effects.jumpParticles, gameState.remote.effects.jumpParticles].forEach((particles, idx) => {
+        const baseColor = idx === 0 ? gameState.local.color : gameState.remote.color;
+        particles.forEach(p => {
+            ctx.beginPath();
+            // 二段跳的粒子使用不同的颜色
+            const color = p.isSecondJump ? '#FFE66D' : baseColor;
+            ctx.fillStyle = `${color}${Math.floor((p.life / p.maxLife) * 255).toString(16).padStart(2, '0')}`;
+            ctx.arc(p.x, p.y, p.size * (p.life / p.maxLife), 0, Math.PI * 2);
+            ctx.fill();
+        });
+    });
+
+    // 渲染收集特效粒子
+    gameState.effects.collectParticles.forEach(particle => {
+        const alpha = particle.life / particle.maxLife;
+        ctx.beginPath();
+        ctx.fillStyle = `${particle.color}${Math.floor(alpha * 255).toString(16).padStart(2, '0')}`;
+        ctx.arc(particle.x, particle.y, particle.size * alpha, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // 渲染闪光效果
+    gameState.effects.flashes.forEach(flash => {
+        const alpha = flash.life / flash.maxLife;
+        if (flash.isFade) {
+            // 透明度渐变效果
+            ctx.beginPath();
+            // 计算当前透明度，实现4次变化
+            const pulseProgress = (flash.maxLife - flash.life) / flash.maxLife;
+            const pulseAlpha = Math.sin(pulseProgress * Math.PI * NEGATIVE_EFFECT_CONFIG.pulseCount) * 0.5 + 0.5;
+            const currentAlpha = flash.initialAlpha * pulseAlpha;
+            ctx.fillStyle = `${flash.color}${Math.floor(currentAlpha * 255).toString(16).padStart(2, '0')}`;
+            ctx.arc(flash.x, flash.y, flash.radius, 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            // 原有的闪光效果
+            const gradient = ctx.createRadialGradient(
+                flash.x, flash.y, 0,
+                flash.x, flash.y, flash.radius
+            );
+            gradient.addColorStop(0, `${flash.color}${Math.floor(alpha * 255).toString(16).padStart(2, '0')}`);
+            gradient.addColorStop(1, `${flash.color}00`);
+            
+            ctx.beginPath();
+            ctx.fillStyle = gradient;
+            ctx.arc(flash.x, flash.y, flash.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
     });
 } 
