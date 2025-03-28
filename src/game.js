@@ -19,7 +19,8 @@ const gameState = {
         },
         score: 0,  // 添加得分
         lastPositionUpdate: null,
-        isReady: false  // 添加准备状态
+        isReady: false,  // 添加准备状态
+        hasWon: false  // 添加胜利状态
     },
     remote: {
         color: '#0000ff',
@@ -37,7 +38,8 @@ const gameState = {
             jumpParticles: []
         },
         score: 0,  // 添加得分
-        isReady: false  // 添加准备状态
+        isReady: false,  // 添加准备状态
+        hasWon: false  // 添加胜利状态
     },
     platforms: [],  // 存储平台数组
     gameStarted: false,  // 修改为false，等待连接后再开始
@@ -47,7 +49,10 @@ const gameState = {
     effects: {
         collectParticles: [],  // 收集特效粒子
         flashes: []           // 闪光效果
-    }
+    },
+    gameOver: false,  // 添加游戏结束状态
+    winner: null,     // 添加获胜者
+    rematchRequested: false  // 添加重新挑战请求状态
 };
 
 // 平台配置
@@ -818,6 +823,44 @@ function setupConnection() {
             }
             return;
         }
+
+        if (data.type === 'gameOver') {
+            gameState.gameOver = true;
+            gameState.winner = data.winner;
+            if (data.winner === 'remote') {
+                showGameOverMessage('对方赢了！');
+            }
+            return;
+        }
+
+        if (data.type === 'rematchRequest') {
+            if (!gameState.rematchRequested) {
+                const confirmRematch = confirm('对方请求重新挑战，是否接受？');
+                if (confirmRematch) {
+                    resetGame();
+                    if (connection && connection.open) {
+                        connection.send({
+                            type: 'rematchAccepted'
+                        });
+                    }
+                } else {
+                    // 如果拒绝，重置重新挑战状态
+                    gameState.rematchRequested = false;
+                    // 更新按钮状态
+                    const rematchButton = document.querySelector('button[style*="background-color: #4CAF50"]');
+                    if (rematchButton) {
+                        rematchButton.textContent = '发起重新挑战';
+                        rematchButton.disabled = false;
+                    }
+                }
+            }
+            return;
+        }
+
+        if (data.type === 'rematchAccepted') {
+            resetGame();
+            return;
+        }
     });
 
     connection.on('close', () => {
@@ -1473,6 +1516,11 @@ function gameLoop() {
         }
     }
 
+    // 检查胜利条件
+    if (!gameState.gameOver) {
+        checkWinCondition();
+    }
+
     requestAnimationFrame(gameLoop);
 }
 
@@ -1742,4 +1790,120 @@ function renderEffects() {
             ctx.fill();
         }
     });
+}
+
+// 添加检查胜利条件的函数
+function checkWinCondition() {
+    if (gameState.local.score >= 20 && !gameState.local.hasWon) {
+        gameState.local.hasWon = true;
+        gameState.gameOver = true;
+        gameState.winner = 'local';
+        
+        // 发送胜利消息
+        if (connection && connection.open) {
+            connection.send({
+                type: 'gameOver',
+                winner: 'local'
+            });
+        }
+        
+        showGameOverMessage('你赢了！');
+    } else if (gameState.remote.score >= 20 && !gameState.remote.hasWon) {
+        gameState.remote.hasWon = true;
+        gameState.gameOver = true;
+        gameState.winner = 'remote';
+        showGameOverMessage('对方赢了！');
+    }
+}
+
+// 添加显示游戏结束消息的函数
+function showGameOverMessage(message) {
+    const gameOverDiv = document.createElement('div');
+    gameOverDiv.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        z-index: 1000;
+    `;
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.style.cssText = `
+        font-size: 24px;
+        margin-bottom: 20px;
+    `;
+    messageDiv.textContent = message;
+    
+    const rematchButton = document.createElement('button');
+    rematchButton.style.cssText = `
+        padding: 10px 20px;
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        margin-top: 10px;
+    `;
+    
+    // 根据游戏状态设置按钮文本
+    if (gameState.rematchRequested) {
+        rematchButton.textContent = '等待对方接受...';
+        rematchButton.disabled = true;
+    } else {
+        rematchButton.textContent = '发起重新挑战';
+    }
+    
+    rematchButton.onclick = () => {
+        if (!gameState.rematchRequested) {
+            gameState.rematchRequested = true;
+            rematchButton.textContent = '等待对方接受...';
+            rematchButton.disabled = true;
+            
+            if (connection && connection.open) {
+                connection.send({
+                    type: 'rematchRequest'
+                });
+            }
+        }
+    };
+    
+    gameOverDiv.appendChild(messageDiv);
+    gameOverDiv.appendChild(rematchButton);
+    document.body.appendChild(gameOverDiv);
+}
+
+// 添加重置游戏的函数
+function resetGame() {
+    // 重置游戏状态
+    gameState.local.score = 0;
+    gameState.remote.score = 0;
+    gameState.local.hasWon = false;
+    gameState.remote.hasWon = false;
+    gameState.gameOver = false;
+    gameState.winner = null;
+    gameState.rematchRequested = false;
+    
+    // 重置玩家位置
+    resetPositions();
+    
+    // 重新生成平台
+    generatePlatforms();
+    
+    // 清除所有掉落物
+    gameState.collectibles.forEach(collectible => {
+        World.remove(world, collectible.body);
+    });
+    gameState.collectibles = [];
+    
+    // 移除游戏结束消息
+    const gameOverDiv = document.querySelector('div[style*="background-color: rgba(0, 0, 0, 0.8)"]');
+    if (gameOverDiv) {
+        gameOverDiv.remove();
+    }
 } 
