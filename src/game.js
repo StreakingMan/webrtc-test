@@ -551,7 +551,19 @@ window.connectToPeer = () => {
     const peerId = document.getElementById('peerId').value;
     console.log('正在连接到对方:', peerId);
     
-    connection = peer.connect(peerId);
+    // 确保 peer 已经初始化完成
+    if (!peer.id) {
+        console.log('等待 peer 初始化完成...');
+        peer.on('open', () => {
+            console.log('peer 初始化完成，开始连接');
+            connection = peer.connect(peerId);
+            setupConnection();
+        });
+    } else {
+        console.log('peer 已初始化，直接连接');
+        connection = peer.connect(peerId);
+        setupConnection();
+    }
     
     // 清除本地状态
     if (gameState.local.body) {
@@ -583,8 +595,6 @@ window.connectToPeer = () => {
     gameState.remote.score = 0;
     gameState.gameStarted = false;
     gameState.lastCollectibleSpawn = 0;
-    
-    setupConnection();
 };
 
 // 设置连接
@@ -1538,6 +1548,74 @@ controlsText.style.cssText = `
 `;
 controlsText.textContent = '操作说明：↑ 或 空格跳跃，← → 左右移动';
 document.getElementById('gameCanvas').parentNode.appendChild(controlsText);
+
+// 添加分享按钮
+const shareButton = document.createElement('button');
+shareButton.textContent = '分享链接';
+shareButton.style.cssText = `
+    position: fixed;
+    top: 10px;
+    right: 120px;
+    padding: 8px 16px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.3s;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+`;
+shareButton.onclick = () => {
+    const shareUrl = `${window.location.origin}${window.location.pathname}?id=${peer.id}`;
+    navigator.clipboard.writeText(shareUrl).then(() => {
+        const originalText = shareButton.textContent;
+        shareButton.textContent = '已复制链接！';
+        shareButton.style.backgroundColor = '#45a049';
+        setTimeout(() => {
+            shareButton.textContent = originalText;
+            shareButton.style.backgroundColor = '#4CAF50';
+        }, 1000);
+    }).catch(err => {
+        console.error('复制失败:', err);
+        shareButton.textContent = '复制失败';
+        shareButton.style.backgroundColor = '#f44336';
+        setTimeout(() => {
+            shareButton.textContent = '分享链接';
+            shareButton.style.backgroundColor = '#4CAF50';
+        }, 1000);
+    });
+};
+shareButton.onmouseover = () => {
+    shareButton.style.backgroundColor = '#45a049';
+};
+shareButton.onmouseout = () => {
+    shareButton.style.backgroundColor = '#4CAF50';
+};
+document.body.appendChild(shareButton);
+
+// 检查URL中是否包含ID
+function checkUrlForId() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const id = urlParams.get('id');
+    if (id) {
+        // 等待 peer 初始化完成后再进行连接
+        if (peer.id) {
+            // peer 已经初始化完成，直接连接
+            document.getElementById('peerId').value = id;
+            window.connectToPeer();
+        } else {
+            // peer 还未初始化完成，等待初始化
+            peer.on('open', () => {
+                document.getElementById('peerId').value = id;
+                window.connectToPeer();
+            });
+        }
+    }
+}
+
+// 在页面加载完成后检查URL
+window.addEventListener('load', checkUrlForId);
 
 // 添加平台重生成按钮
 const regenerateButton = document.createElement('button');
