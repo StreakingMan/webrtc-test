@@ -1009,6 +1009,40 @@ function updatePlayerMovement() {
             gameState.local.isJumping = true;
             gameState.local.jumpCooldown = PHYSICS.jumpCooldown;
             gameState.local.jumpCount++;
+
+            // 创建跳跃特效
+            const isSecondJump = gameState.local.jumpCount === 2;
+            const particleCount = isSecondJump ? 20 : 12;  // 增加粒子数量
+            const baseSpeed = isSecondJump ? 1.5 : 1;      // 降低粒子速度
+            
+            for (let i = 0; i < particleCount; i++) {
+                const angle = (Math.PI * 2 / particleCount) * i;
+                const speed = baseSpeed * (0.8 + Math.random() * 0.4);
+                
+                gameState.local.effects.jumpParticles.push({
+                    x: gameState.local.body.position.x,
+                    y: gameState.local.body.position.y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed + 0.8,  // 降低向上的初始速度
+                    size: isSecondJump ? 5 : 4,         // 增加粒子大小
+                    life: isSecondJump ? 35 : 25,       // 增加粒子持续时间
+                    maxLife: isSecondJump ? 35 : 25,
+                    isSecondJump: isSecondJump
+                });
+            }
+
+            // 如果是二段跳，添加额外的闪光效果
+            if (isSecondJump) {
+                gameState.effects.flashes.push({
+                    x: gameState.local.body.position.x,
+                    y: gameState.local.body.position.y,
+                    radius: 0,
+                    maxRadius: 40,        // 增加闪光范围
+                    life: 20,             // 增加闪光持续时间
+                    maxLife: 20,
+                    color: '#FFD700'      // 金色闪光
+                });
+            }
         }
     }
 
@@ -1055,27 +1089,29 @@ function updatePlayerMovement() {
 function updateEffects() {
     // 更新本地玩家轨迹
     if (gameState.local.body) {
-        // 添加新的轨迹点
-        if (Math.abs(gameState.local.body.velocity.x) > 0.5 || Math.abs(gameState.local.body.velocity.y) > 0.5) {
+        // 添加新的轨迹点，降低速度阈值使尾迹更连续
+        if (Math.abs(gameState.local.body.velocity.x) > 0.3 || Math.abs(gameState.local.body.velocity.y) > 0.3) {
             gameState.local.effects.trail.push({
                 x: gameState.local.body.position.x,
                 y: gameState.local.body.position.y,
-                life: 15,
-                maxLife: 15,
-                color: gameState.local.color
+                life: 35,        // 增加生命周期
+                maxLife: 35,     // 增加最大生命周期
+                color: gameState.local.color,
+                size: 4          // 保持大小不变
             });
         }
     }
 
     // 更新远程玩家轨迹
     if (gameState.remote.body) {
-        if (Math.abs(gameState.remote.body.velocity.x) > 0.5 || Math.abs(gameState.remote.body.velocity.y) > 0.5) {
+        if (Math.abs(gameState.remote.body.velocity.x) > 0.3 || Math.abs(gameState.remote.body.velocity.y) > 0.3) {
             gameState.remote.effects.trail.push({
                 x: gameState.remote.body.position.x,
                 y: gameState.remote.body.position.y,
-                life: 15,
-                maxLife: 15,
-                color: gameState.remote.color
+                life: 35,        // 增加生命周期
+                maxLife: 35,     // 增加最大生命周期
+                color: gameState.remote.color,
+                size: 4          // 保持大小不变
             });
         }
     }
@@ -1137,8 +1173,10 @@ function renderEffects() {
     [gameState.local.effects.trail, gameState.remote.effects.trail].forEach(trail => {
         trail.forEach(point => {
             ctx.beginPath();
-            ctx.fillStyle = `${point.color}${Math.floor((point.life / point.maxLife) * 255).toString(16).padStart(2, '0')}`;
-            ctx.arc(point.x, point.y, 3 * (point.life / point.maxLife), 0, Math.PI * 2);
+            const alpha = Math.floor((point.life / point.maxLife) * 255);
+            const size = point.size * (point.life / point.maxLife);
+            ctx.fillStyle = `${point.color}${alpha.toString(16).padStart(2, '0')}`;
+            ctx.arc(point.x, point.y, size, 0, Math.PI * 2);
             ctx.fill();
         });
     });
