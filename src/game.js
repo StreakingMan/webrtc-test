@@ -52,7 +52,9 @@ const gameState = {
     },
     gameOver: false,  // 添加游戏结束状态
     winner: null,     // 添加获胜者
-    rematchRequested: false  // 添加重新挑战请求状态
+    rematchRequested: false,  // 添加重新挑战请求状态
+    lastPlatformRegen: 0,    // 添加上次平台重生成时间
+    platformRegenInterval: 5000  // 平台重生成间隔（5秒）
 };
 
 // 平台配置
@@ -393,8 +395,8 @@ function resetPositions() {
 function showConnectionNotice(text, duration = 3000) {
     const notice = document.createElement('div');
     notice.style.cssText = `
-        position: fixed;
-        top: 20px;
+        position: absolute;
+        top: 80px;
         left: 50%;
         transform: translateX(-50%);
         background-color: rgba(0, 0, 0, 0.8);
@@ -404,6 +406,9 @@ function showConnectionNotice(text, duration = 3000) {
         font-size: 18px;
         z-index: 1000;
         transition: opacity 0.3s;
+        text-align: center;
+        width: fit-content;
+        margin: 0 auto;
     `;
     notice.textContent = text;
     document.body.appendChild(notice);
@@ -418,45 +423,6 @@ function showConnectionNotice(text, duration = 3000) {
 
 // PeerJS 连接事件
 peer.on('open', (id) => {
-    document.getElementById('myId').textContent = id;
-    
-    // 添加复制按钮
-    const copyButton = document.createElement('button');
-    copyButton.textContent = '复制ID';
-    copyButton.style.cssText = `
-        margin-left: 10px;
-        padding: 4px 8px;
-        background-color: #4CAF50;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 14px;
-    `;
-    copyButton.onclick = () => {
-        navigator.clipboard.writeText(id).then(() => {
-            const originalText = copyButton.textContent;
-            copyButton.textContent = '已复制！';
-            copyButton.style.backgroundColor = '#45a049';
-            setTimeout(() => {
-                copyButton.textContent = originalText;
-                copyButton.style.backgroundColor = '#4CAF50';
-            }, 1000);
-        }).catch(err => {
-            console.error('复制失败:', err);
-            copyButton.textContent = '复制失败';
-            copyButton.style.backgroundColor = '#f44336';
-            setTimeout(() => {
-                copyButton.textContent = '复制ID';
-                copyButton.style.backgroundColor = '#4CAF50';
-            }, 1000);
-        });
-    };
-    
-    // 将复制按钮添加到ID显示区域旁边
-    const idContainer = document.getElementById('myId').parentNode;
-    idContainer.appendChild(copyButton);
-    
     document.getElementById('status').textContent = '已连接到服务器，等待对方加入...';
     
     // 设置为主机
@@ -635,6 +601,9 @@ function setupConnection() {
                 });
             }
         }
+        
+        // 重置平台重生成时间
+        gameState.lastPlatformRegen = Date.now();
     });
 
     connection.on('data', (data) => {
@@ -1484,8 +1453,9 @@ function gameLoop() {
             }
             ctx.lineTo(vertices[0].x, vertices[0].y);
             ctx.fill();
-        } else {
-            ctx.fillStyle = '#2C3E50';  // 深蓝灰色背景
+        } else if (body === ground) {
+            // 使用更深的灰色
+            ctx.fillStyle = '#1a2634';  // 深灰色
             const vertices = body.vertices;
             ctx.beginPath();
             ctx.moveTo(vertices[0].x, vertices[0].y);
@@ -1532,6 +1502,18 @@ function gameLoop() {
         checkWinCondition();
     }
 
+    // 检查是否需要重新生成平台
+    if (gameState.isConnected && !gameState.gameOver) {
+        const now = Date.now();
+        if (now - gameState.lastPlatformRegen >= gameState.platformRegenInterval) {
+            // 只有主机重新生成平台
+            if (gameState.local.isHost) {
+                generatePlatforms();
+                gameState.lastPlatformRegen = now;
+            }
+        }
+    }
+
     requestAnimationFrame(gameLoop);
 }
 
@@ -1551,11 +1533,12 @@ document.getElementById('gameCanvas').parentNode.appendChild(controlsText);
 
 // 添加分享按钮
 const shareButton = document.createElement('button');
-shareButton.textContent = '分享链接';
+shareButton.textContent = '分享连接，与朋友PK';
 shareButton.style.cssText = `
-    position: fixed;
-    top: 10px;
-    right: 120px;
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
     padding: 8px 16px;
     background-color: #4CAF50;
     color: white;
@@ -1565,6 +1548,7 @@ shareButton.style.cssText = `
     font-size: 14px;
     transition: background-color 0.3s;
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
 `;
 shareButton.onclick = () => {
     const shareUrl = `${window.location.origin}${window.location.pathname}?id=${peer.id}`;
@@ -1602,13 +1586,17 @@ function checkUrlForId() {
         // 等待 peer 初始化完成后再进行连接
         if (peer.id) {
             // peer 已经初始化完成，直接连接
-            document.getElementById('peerId').value = id;
-            window.connectToPeer();
+            connection = peer.connect(id);
+            setupConnection();
+            // 清除URL中的ID参数
+            window.history.replaceState({}, '', window.location.pathname);
         } else {
             // peer 还未初始化完成，等待初始化
             peer.on('open', () => {
-                document.getElementById('peerId').value = id;
-                window.connectToPeer();
+                connection = peer.connect(id);
+                setupConnection();
+                // 清除URL中的ID参数
+                window.history.replaceState({}, '', window.location.pathname);
             });
         }
     }
@@ -1616,37 +1604,6 @@ function checkUrlForId() {
 
 // 在页面加载完成后检查URL
 window.addEventListener('load', checkUrlForId);
-
-// 添加平台重生成按钮
-const regenerateButton = document.createElement('button');
-regenerateButton.textContent = '重新生成平台';
-regenerateButton.style.cssText = `
-    position: fixed;
-    top: 10px;
-    right: 10px;
-    padding: 8px 16px;
-    background-color: #4ECDC4;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-    transition: background-color 0.3s;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-`;
-regenerateButton.onclick = () => {
-    // 只有主机可以重新生成平台
-    if (gameState.local.isHost) {
-        generatePlatforms();
-    }
-};
-regenerateButton.onmouseover = () => {
-    regenerateButton.style.backgroundColor = '#45B7AF';
-};
-regenerateButton.onmouseout = () => {
-    regenerateButton.style.backgroundColor = '#4ECDC4';
-};
-document.body.appendChild(regenerateButton);
 
 // 添加准备按钮
 function createReadyButton() {
@@ -1968,4 +1925,15 @@ function resetGame() {
     if (gameOverDiv) {
         gameOverDiv.remove();
     }
-} 
+}
+
+// 添加分享链接功能
+window.shareLink = () => {
+    const shareUrl = `${window.location.origin}${window.location.pathname}?id=${peer.id}`;
+    navigator.clipboard.writeText(shareUrl).then(() => {
+        showConnectionNotice('已复制分享链接！');
+    }).catch(err => {
+        console.error('复制失败:', err);
+        showConnectionNotice('复制链接失败，请手动复制');
+    });
+}; 
