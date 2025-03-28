@@ -43,7 +43,11 @@ const gameState = {
     gameStarted: false,  // 修改为false，等待连接后再开始
     collectibles: [],  // 存储掉落物体
     lastCollectibleSpawn: 0,  // 上次生成掉落物的时间
-    isConnected: false  // 添加连接状态标志
+    isConnected: false,  // 添加连接状态标志
+    effects: {
+        collectParticles: [],  // 收集特效粒子
+        flashes: []           // 闪光效果
+    }
 };
 
 // 平台配置
@@ -88,6 +92,14 @@ const COLLECTIBLE_CONFIG = {
     fallSpeed: 2,
     colors: [PLAYER_COLORS.player1, PLAYER_COLORS.player2],  // 与玩家颜色对应
     maxCount: 5  // 场上最大掉落物数量
+};
+
+// 添加收集特效配置
+const COLLECT_EFFECT_CONFIG = {
+    particleCount: 15,  // 粒子数量
+    particleLifeSpan: 30,  // 粒子生命周期
+    particleSpeed: 3,   // 粒子速度
+    flashDuration: 10   // 闪光持续时间
 };
 
 // 初始化画布
@@ -800,6 +812,13 @@ Events.on(engine, 'collisionStart', (event) => {
                 console.log('掉落物颜色:', collectible.color);
                 console.log('玩家颜色:', gameState.local.color);
                 
+                // 创建收集特效
+                createCollectEffect(
+                    collectible.body.position.x,
+                    collectible.body.position.y,
+                    collectible.color
+                );
+
                 // 移除掉落物
                 World.remove(world, collectible.body);
                 gameState.collectibles = gameState.collectibles.filter(c => c.body !== collectible.body);
@@ -1084,6 +1103,32 @@ function updateEffects() {
             }
         }
     });
+
+    // 更新收集特效粒子
+    for (let i = gameState.effects.collectParticles.length - 1; i >= 0; i--) {
+        const particle = gameState.effects.collectParticles[i];
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+        particle.life--;
+        
+        // 添加重力效果
+        particle.vy += 0.1;
+        
+        if (particle.life <= 0) {
+            gameState.effects.collectParticles.splice(i, 1);
+        }
+    }
+
+    // 更新闪光效果
+    for (let i = gameState.effects.flashes.length - 1; i >= 0; i--) {
+        const flash = gameState.effects.flashes[i];
+        flash.life--;
+        flash.radius = (flash.maxRadius * (flash.maxLife - flash.life)) / flash.maxLife;
+        
+        if (flash.life <= 0) {
+            gameState.effects.flashes.splice(i, 1);
+        }
+    }
 }
 
 // 添加特效渲染函数
@@ -1109,6 +1154,31 @@ function renderEffects() {
             ctx.arc(p.x, p.y, p.size * (p.life / p.maxLife), 0, Math.PI * 2);
             ctx.fill();
         });
+    });
+
+    // 渲染收集特效粒子
+    gameState.effects.collectParticles.forEach(particle => {
+        const alpha = particle.life / particle.maxLife;
+        ctx.beginPath();
+        ctx.fillStyle = `${particle.color}${Math.floor(alpha * 255).toString(16).padStart(2, '0')}`;
+        ctx.arc(particle.x, particle.y, particle.size * alpha, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // 渲染闪光效果
+    gameState.effects.flashes.forEach(flash => {
+        const alpha = flash.life / flash.maxLife;
+        const gradient = ctx.createRadialGradient(
+            flash.x, flash.y, 0,
+            flash.x, flash.y, flash.radius
+        );
+        gradient.addColorStop(0, `${flash.color}${Math.floor(alpha * 255).toString(16).padStart(2, '0')}`);
+        gradient.addColorStop(1, `${flash.color}00`);
+        
+        ctx.beginPath();
+        ctx.fillStyle = gradient;
+        ctx.arc(flash.x, flash.y, flash.radius, 0, Math.PI * 2);
+        ctx.fill();
     });
 }
 
@@ -1412,4 +1482,35 @@ gameLoop();
 function updateScoreBoard() {
     // 只保留日志输出
     console.log('更新得分:', gameState.local.score, gameState.remote.score);
+}
+
+// 添加创建收集特效的函数
+function createCollectEffect(x, y, color) {
+    // 创建粒子爆炸效果
+    for (let i = 0; i < COLLECT_EFFECT_CONFIG.particleCount; i++) {
+        const angle = (Math.PI * 2 / COLLECT_EFFECT_CONFIG.particleCount) * i;
+        const speed = COLLECT_EFFECT_CONFIG.particleSpeed * (0.5 + Math.random() * 0.5);
+        
+        gameState.effects.collectParticles.push({
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            size: 3 + Math.random() * 2,
+            color: color,
+            life: COLLECT_EFFECT_CONFIG.particleLifeSpan,
+            maxLife: COLLECT_EFFECT_CONFIG.particleLifeSpan
+        });
+    }
+
+    // 创建闪光效果
+    gameState.effects.flashes.push({
+        x: x,
+        y: y,
+        radius: 0,
+        maxRadius: 40,
+        life: COLLECT_EFFECT_CONFIG.flashDuration,
+        maxLife: COLLECT_EFFECT_CONFIG.flashDuration,
+        color: color
+    });
 } 
