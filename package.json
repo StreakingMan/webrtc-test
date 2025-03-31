@@ -5,17 +5,26 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "check": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.17",
+    "@types/node": "22.13.14",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^4.0.17",
+    "typescript": "^5.8.2",
     "vite": "^6.2.3"
   },
   "dependencies": {
-    "matter-js": "^0.20.0",
-    "peerjs": "^1.5.4"
+    "@vitejs/plugin-vue": "^5.2.3",
+    "peerjs": "^1.5.4",
+    "phaser": "^3.88.2",
+    "vue": "^3.5.13"
   }
 }

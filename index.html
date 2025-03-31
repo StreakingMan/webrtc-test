@@ -3,43 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>双人跳跃游戏</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            background-color: #f0f0f0;
-            font-family: Arial, sans-serif;
-        }
-        #gameCanvas {
-            border: 2px solid #333;
-            background-color: #2C3E50;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
-        }
-        #status {
-            position: fixed;
-            top: 60px;
-            left: 50%;
-            transform: translateX(-50%);
-            background-color: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 8px 16px;
-            border-radius: 4px;
-            font-size: 14px;
-            z-index: 100;
-            text-align: center;
-            white-space: nowrap;
-        }
-    </style>
+    <title>WebRTC 1v1 Test</title>
 </head>
 <body>
-    <div id="status">等待连接...</div>
-    <canvas id="gameCanvas" width="400" height="400"></canvas>
-    <script type="module" src="src/game.js"></script>
+    <div id="app"></div>
+    <script type="module" src="src/main.js"></script>
 </body>
 </html> 
